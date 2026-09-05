@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Generated artifacts (models, splits, reports) - reproducible via scripts/, not committed
+artifacts/
+
+# Never commit the PTB-XL dataset - it's several GB and lives outside the repo
+# (see .env.example / README for how to point ECG_DATASET_ROOT at a local copy)
+data/ptbxl/
+
+# Uploaded files handled at request time
+uploads/*
+!uploads/.gitkeep
+
+# Environment/secrets
+.env
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

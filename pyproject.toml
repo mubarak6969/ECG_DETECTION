@@ -1,0 +1,6 @@
+[tool.ruff]
+line-length = 120
+exclude = ["venv", "artifacts", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
