@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECG Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <canvas id="bg-ecg" aria-hidden="true"></canvas>
+
+    <main class="page">
+        <header class="hero">
+            <span class="kicker">ECG Intelligence</span>
+            <h1>AI-Powered ECG Analysis</h1>
+            <p class="lede">Upload an ECG and analyze it using the RCNN deep-learning model, trained on the PTB-XL clinical dataset.</p>
+
+            <div class="model-pills" role="list" aria-label="Model information" id="modelPills">
+                <span class="pill" role="listitem">Connecting to backend&hellip;</span>
+            </div>
+        </header>
+
+        <section class="panel upload-panel" aria-label="Upload ECG">
+            <form id="uploadForm">
+                <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-describedby="dropzone-hint">
+                    <svg viewBox="0 0 24 24" class="dropzone-icon" aria-hidden="true"><path d="M12 3l5 5h-3v6h-4V8H7l5-5zM5 19h14v2H5z" fill="currentColor"/></svg>
+                    <p class="dropzone-title">Drop a WFDB <code>.dat</code> file, or click to browse</p>
+                    <p class="dropzone-hint" id="dropzone-hint">Optionally add the matching <code>.hea</code> header for calibrated, higher-accuracy results.</p>
+                    <input type="file" id="ecgFile" name="file" accept=".dat" required hidden>
+                    <input type="file" id="heaFile" name="hea_file" accept=".hea" hidden>
+                </div>
+                <div class="file-status" id="fileStatus" aria-live="polite"></div>
+                <div class="actions">
+                    <button type="button" id="heaPickBtn" class="btn-ghost">Add .hea header (optional)</button>
+                    <button type="submit" id="submitBtn" class="btn-primary" disabled>Analyze ECG</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="panel result-panel" id="resultPanel" hidden aria-live="polite" aria-label="Analysis result">
+            <div id="pendingState" class="pending-state" hidden>
+                <div class="pulse-ring"></div>
+                <p>Analyzing ECG&hellip;</p>
+                <p class="pending-steps">Signal &rarr; R-peak detection &rarr; RCNN inference</p>
+            </div>
+
+            <div id="resultState" hidden>
+                <div class="result-header">
+                    <span id="resultBadge" class="badge"></span>
+                    <span id="processingTime" class="processing-time"></span>
+                </div>
+                <div class="confidence-row">
+                    <div class="confidence-bar-track">
+                        <div id="confidenceBar" class="confidence-bar-fill"></div>
+                    </div>
+                    <span id="confidenceLabel" class="confidence-label"></span>
+                </div>
+                <p class="confidence-caveat">Calibrated model probability, not a clinical certainty.</p>
+                <div class="stat-row">
+                    <div class="stat"><span class="stat-value" id="beatsAnalyzed">-</span><span class="stat-label">Beats analyzed</span></div>
+                    <div class="stat"><span class="stat-value" id="modelArch">-</span><span class="stat-label">Model</span></div>
+                </div>
+                <p class="eval-context" id="evalContext"></p>
+                <div class="waveform-wrap">
+                    <canvas id="ecgChart" aria-label="ECG waveform, Lead II"></canvas>
+                </div>
+                <div class="waveform-wrap explain-wrap" id="explainWrap" hidden>
+                    <p class="explain-title">Model attribution - most influential beat</p>
+                    <canvas id="explainChart" aria-label="Per-timestep model attribution for the most influential beat"></canvas>
+                    <p class="explain-note" id="explainNote"></p>
+                </div>
+            </div>
+
+            <div id="errorState" class="error-state" hidden></div>
+        </section>
+
+        <p class="disclaimer">
+            This is a research and educational AI system for demonstration purposes. It is <strong>not a certified medical device</strong> and must not be used for real clinical diagnosis or treatment decisions.
+        </p>
+    </main>
+
+    <script src="/background.js"></script>
+    <script src="/script.js"></script>
+</body>
+</html>

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sys
 import time
@@ -46,6 +47,24 @@ logger = logging.getLogger("ecg.app")
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_BYTES
+
+# CORS: the Vercel static frontend calls this API cross-origin. Only the
+# exact origin in ECG_FRONTEND_ORIGIN is allowed - deliberately not "*",
+# so an unset value means no CORS header at all (same-origin requests,
+# e.g. hitting this Flask app's own "/" directly, are unaffected either
+# way; only cross-origin browser calls need this).
+_FRONTEND_ORIGIN = os.environ.get("ECG_FRONTEND_ORIGIN")
+
+
+@app.after_request
+def _apply_cors(response):
+    if _FRONTEND_ORIGIN:
+        response.headers["Access-Control-Allow-Origin"] = _FRONTEND_ORIGIN
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
+
 
 # No-op if the model is already on disk (the normal case for local dev);
 # downloads it from ECG_MODEL_URL first if it's missing and that env var
@@ -230,7 +249,6 @@ def predict():
 
 
 if __name__ == "__main__":
-    import os
     host = os.environ.get("ECG_APP_HOST", "127.0.0.1")
     port = int(os.environ.get("ECG_APP_PORT", 5000))
     app.run(host=host, port=port, debug=False)

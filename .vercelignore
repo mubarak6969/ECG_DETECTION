@@ -1,3 +1,15 @@
+# This Vercel project is the static frontend + one tiny Node function
+# (public/, api/config.js) only. The Flask/TensorFlow inference backend
+# deploys separately (Render) - none of it is needed here, so it's all
+# excluded to keep the Vercel deployment small and fast.
+ecg/
+app/
+scripts/
+tests/
+data/
+docs/
+artifacts/
+uploads/
 venv/
 .venv/
 __pycache__/
@@ -6,11 +18,13 @@ __pycache__/
 .ruff_cache/
 .git/
 .github/
-data/ptbxl/
-artifacts/
-uploads/*
-!uploads/.gitkeep
-tests/
-docs/
+requirements.txt
+requirements-dev.txt
+Dockerfile
+.dockerignore
+wsgi.py
+pytest.ini
+pyproject.toml
+MODEL_CARD.md
 *.md
 .env
