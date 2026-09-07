@@ -37,6 +37,7 @@ from werkzeug.utils import secure_filename
 
 from ecg import config
 from ecg.explainability import beat_saliency, most_influential_beat
+from ecg.model_bootstrap import ensure_model_present
 from ecg.postprocessing import aggregate, apply_temperature
 from ecg.preprocessing import prepare_segments_for_record
 
@@ -46,11 +47,18 @@ logger = logging.getLogger("ecg.app")
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_BYTES
 
+# No-op if the model is already on disk (the normal case for local dev);
+# downloads it from ECG_MODEL_URL first if it's missing and that env var
+# is set (the deployment case - see ecg/model_bootstrap.py).
+ensure_model_present()
+
 _model_path = config.MODEL_PATH if config.MODEL_PATH.exists() else config.LEGACY_MODEL_PATH
 if not _model_path.exists():
     raise FileNotFoundError(
-        f"No model found at {config.MODEL_PATH} or {config.LEGACY_MODEL_PATH}. "
-        "Run scripts/prepare_data.py and scripts/train_model.py first."
+        f"No model found at {config.MODEL_PATH} or {config.LEGACY_MODEL_PATH}, and "
+        "ECG_MODEL_URL is not set (or the download failed). "
+        "Either run scripts/prepare_data.py and scripts/train_model.py first, "
+        "or set ECG_MODEL_URL to a direct-download link for a trained rcnn_model.h5."
     )
 logger.info("Loading model from %s", _model_path)
 model = load_model(str(_model_path), compile=False)

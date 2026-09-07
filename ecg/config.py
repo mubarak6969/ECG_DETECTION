@@ -17,6 +17,15 @@ except ImportError:
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# Serverless platforms (Vercel's Python runtime, and similar) deploy the
+# source tree read-only and only allow writes under /tmp. Vercel sets the
+# VERCEL env var on every deployment automatically, so this is detected
+# without needing a manual flag - artifacts/uploads redirect to /tmp
+# there; every other platform (local dev, Docker, Render) is unaffected
+# and keeps writing next to the project as before.
+_ON_READONLY_PLATFORM = bool(os.environ.get("VERCEL"))
+_WRITABLE_ROOT = Path("/tmp") if _ON_READONLY_PLATFORM else PROJECT_ROOT
+
 # --- Dataset location -------------------------------------------------
 # The full PTB-XL dataset (several GB) is never stored inside the repo.
 # Point ECG_DATASET_ROOT at a local extraction of the PhysioNet PTB-XL
@@ -39,13 +48,20 @@ SAMPLING_RATE_HZ = 100 if RECORD_RATE == "lr" else 500
 FILENAME_COLUMN = "filename_lr" if RECORD_RATE == "lr" else "filename_hr"
 
 # --- Artifacts (generated, gitignored) ---------------------------------
-ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+ARTIFACTS_DIR = _WRITABLE_ROOT / "artifacts"
 SPLITS_DIR = ARTIFACTS_DIR / "splits"
 MODELS_DIR = ARTIFACTS_DIR / "models"
 REPORTS_DIR = ARTIFACTS_DIR / "reports"
 
 for _d in (ARTIFACTS_DIR, SPLITS_DIR, MODELS_DIR, REPORTS_DIR):
-    _d.mkdir(parents=True, exist_ok=True)
+    try:
+        _d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Belt-and-braces for any other read-only environment this
+        # module hasn't been taught to detect explicitly - degrade
+        # instead of crashing at import time; downstream code already
+        # handles a missing/undownloaded model and missing report JSON.
+        pass
 
 # --- Reproducibility ----------------------------------------------------
 RANDOM_SEED = int(os.environ.get("ECG_RANDOM_SEED", 42))
@@ -85,7 +101,7 @@ LEARNING_RATE = float(os.environ.get("ECG_LEARNING_RATE", 1e-4))
 EARLY_STOPPING_PATIENCE = int(os.environ.get("ECG_EARLY_STOPPING_PATIENCE", 8))
 
 # --- Inference / API -------------------------------------------------
-UPLOADS_DIR = PROJECT_ROOT / "uploads"
+UPLOADS_DIR = _WRITABLE_ROOT / "uploads"
 ALLOWED_UPLOAD_EXTENSIONS = {".dat", ".hea"}
 MAX_UPLOAD_BYTES = int(os.environ.get("ECG_MAX_UPLOAD_BYTES", 5 * 1024 * 1024))  # 5 MB
 # NTFS/most filesystems cap a single path component at 255 bytes; stay

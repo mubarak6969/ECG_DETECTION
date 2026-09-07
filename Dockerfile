@@ -26,10 +26,13 @@ COPY wsgi.py .
 # as the model file below - see README "Deployment".
 COPY artifacts/reports/ artifacts/reports/
 
-# Mount or bake a trained model at this path before running:
-#   artifacts/models/rcnn_model.h5
+# The model is never baked into the image or committed to git. At
+# container startup, app/main.py (via ecg/model_bootstrap.py) downloads
+# it from ECG_MODEL_URL if it's missing at this path - set that env var
+# on the container/Render service. Alternatively, mount a volume
+# containing rcnn_model.h5 at this path, which skips the download.
 # (produced by scripts/prepare_data.py + scripts/train_model.py against a
-# local PTB-XL copy - see README, it is intentionally not part of the image)
+# local PTB-XL copy - see README "Deployment" / MODEL_CARD.md)
 ENV ECG_MODEL_PATH=/app/artifacts/models/rcnn_model.h5
 
 # PORT is the standard env var injected by Render/Railway/Heroku-style
