@@ -1,12 +1,12 @@
 # ECG Intelligence
 
-AI-powered ECG classification on the [PTB-XL](https://physionet.org/content/ptb-xl/1.0.3/) clinical dataset, using an RCNN (1D CNN + LSTM) deep-learning model, served through a Flask web application.
+AI-powered ECG classification on the [PTB-XL](https://physionet.org/content/ptb-xl/1.0.3/) clinical dataset, using an RCNN (1D CNN + LSTM) deep-learning model, served through a FastAPI REST API with interactive OpenAPI docs at `/docs`.
 
 > **Not a medical device.** This is a research and portfolio engineering project. It has not been clinically validated and must never be used for real diagnosis or treatment decisions. See [Ethical & medical disclaimer](#ethical--medical-disclaimer).
 
 ## Live demo
 
-**[Deployment URL not yet published - placeholder]**. Run it locally in under 5 minutes: see [Setup](#setup) and [Running the app](#application) below, or the [screenshot](#screenshots) for a preview of the flow.
+Frontend: **https://ecg-detection-two.vercel.app** (static UI, deployed on Vercel). The FastAPI backend (Render) is deployed separately - see [Deployment](#deployment) for its current status before assuming the live upload flow works end to end. Run the whole thing locally in under 5 minutes: see [Setup](#setup) and [Running the app](#application) below, or the [screenshot](#screenshots) for a preview of the flow.
 
 ## Screenshots
 
@@ -58,16 +58,22 @@ scripts/
   prepare_multilabel_data.py               experimental multi-label data prep (proof-of-concept)
   train_multilabel_model.py                experimental multi-label training (proof-of-concept)
 
-app/
-  main.py               Flask app (canonical UI) - /, /predict, /health, /api/model-info
-  templates/, static/   dark, single-page UI (vanilla HTML/CSS/JS, Chart.js for the waveform)
+app/                    FastAPI backend - the inference REST API (no HTML; the UI is public/, below)
+  main.py               app instance, CORS, exception handlers, lifespan (model load)
+  model_state.py        loaded-model state + the non-sensitive model-info summary dict
+  uploads.py            filename sanitization + size-capped upload reading (HTTP-layer only)
+  routes/               health.py (/health), model_info.py (/model-info), predict.py (/predict)
+  schemas/prediction.py Pydantic response models (ModelInfo, PredictionResponse, ...)
+
+public/                 static frontend (deployed on Vercel) - plain HTML/CSS/JS, Chart.js for the waveform
+api/config.js           one dependency-free Vercel Node function: hands the frontend ECG_API_URL
 
 tests/                  pytest suite - config, preprocessing, dataset split/leakage, API/security
 artifacts/              generated, gitignored: trained models, split arrays, reports/plots
 data/demo/              one tiny bundled sample WFDB record used by tests and the CLI demo
 docs/                   README screenshot(s)
 .github/workflows/      CI: lint + unit tests on every push
-Dockerfile, wsgi.py     production deployment
+Dockerfile              production deployment (Render/any container host)
 MODEL_CARD.md           full model card: architecture, methodology, metrics, limitations
 ```
 
@@ -198,11 +204,17 @@ HYP's weak recall is expected at this scale (least-represented class, no class w
 
 ## Application
 
-Single canonical web app in `app/` (a prior, redundant Streamlit implementation was removed once this was verified working). Dark, single-page UI following one clear flow - upload → signal validation → preprocessing → RCNN analysis → result: drag-and-drop upload, a live processing state, then a prediction badge, calibrated confidence bar (explicitly labeled "model confidence" with a "not a clinical certainty" caption), beat count, model/evaluation context, processing time, the analyzed waveform, and the explainability attribution chart. The research/medical disclaimer is always visible, independent of upload state.
+Two deployables, kept deliberately separate:
+
+- **`public/`** - the frontend. Dark, single-page UI following one clear flow - upload → signal validation → preprocessing → RCNN analysis → result: drag-and-drop upload, a live processing state, then a prediction badge, calibrated confidence bar (explicitly labeled "model confidence" with a "not a clinical certainty" caption), beat count, model/evaluation context, processing time, the analyzed waveform, and the explainability attribution chart. The research/medical disclaimer is always visible, independent of upload state. It calls the backend at `ECG_API_URL`, resolved at runtime via `api/config.js` (a tiny Vercel Node function) rather than baked in at build time.
+- **`app/`** - the backend. A FastAPI JSON API with no HTML of its own; `public/` is its only real client.
 
 ```bash
-python app/main.py                        # dev server, http://127.0.0.1:5000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 5000    # backend dev server
+python app/main.py                                            # equivalent shortcut (reads ECG_APP_HOST/ECG_APP_PORT)
 ```
+
+Interactive API docs are served by FastAPI itself once the backend is running: **`/docs`** (Swagger UI), **`/redoc`**, and the raw **`/openapi.json`** schema.
 
 ### API
 
@@ -241,18 +253,21 @@ Errors (all return `{"error": "<safe message>"}`, never a stack trace or filesys
 
 `{"status": "ok", "model_loaded": true, "model_type": "rcnn"}` - liveness/readiness probe, wired as the Docker health check. Deliberately carries no filesystem paths.
 
-#### `GET /api/model-info`
+#### `GET /model-info`
 
 Architecture, window/sampling-rate configuration, and the last-evaluated **record-level** test metrics (see [Results](#results)) - the same numbers shown as pills in the UI.
 
+All error responses share one shape - `{"error": "<safe message>"}` - via a FastAPI exception handler, never FastAPI's default `{"detail": ...}`, so the frontend's error handling doesn't need to know which framework the backend runs.
+
 ## Security
 
-- Uploaded filenames are sanitized with `secure_filename()`, length-capped (`ECG_MAX_FILENAME_LENGTH`, default 100) to avoid OS path-length errors, and written into a per-request random subdirectory (`uploads/<uuid>/`) - closes path traversal, absolute-path injection, cross-request filename collisions, and Windows-reserved-device-name issues (`secure_filename` handles all of these; verified with adversarial inputs including `C:\Windows\System32\evil.dat`, `../../evil.dat`, and `con.dat`).
-- Extension allowlist (`.dat` required, `.hea` optional, both checked) and a request size cap (`ECG_MAX_UPLOAD_BYTES`, default 5MB) enforced by Flask/Werkzeug and answered as JSON (not Flask's default HTML error page) via a custom `413` handler.
+- Uploaded filenames are sanitized with a small `secure_filename()` (`app/uploads.py` - reimplements just the guarantees this project relies on from werkzeug's version, with no Flask/Werkzeug dependency), length-capped (`ECG_MAX_FILENAME_LENGTH`, default 100) to avoid OS path-length errors, and written into a per-request random subdirectory (`uploads/<uuid>/`) - closes path traversal, absolute-path injection, and cross-request filename collisions (verified with adversarial inputs including `../../evil.dat`).
+- Extension allowlist (`.dat` required, `.hea` optional, both checked) and a request size cap (`ECG_MAX_UPLOAD_BYTES`, default 5MB), enforced two ways: an up-front `Content-Length` check, and a size-capped streaming read (`app/uploads.py: read_capped`) that also catches a lying or chunked-transfer client - answered as JSON via a custom exception handler, not a framework default error page.
 - Every request's temp files are removed in a `finally` block, on every code path including errors - verified for the success path, every rejection path, and mid-request OS errors.
-- A global `Exception` error handler is registered as defense-in-depth: no code path - anticipated or not - can return a raw traceback or filesystem path to the client; normal HTTP errors (404 etc.) still behave normally.
+- A global `Exception` handler is registered as defense-in-depth: no code path - anticipated or not - can return a raw traceback or filesystem path to the client; normal HTTP errors still behave normally.
 - No raw exception text or filesystem path is ever returned to the client - failures are logged server-side and answered with a generic, safe message and an appropriate HTTP status.
-- Config/secrets are environment-based (`.env`, never committed); `debug=False` always; production runs behind `waitress`, not the Flask dev server.
+- CORS is exact-origin only (`ECG_FRONTEND_ORIGIN`), never `*` - unset means no CORS header at all, so a cross-origin browser call fails closed rather than being silently allowed.
+- Config/secrets are environment-based (`.env`, never committed); production runs behind `uvicorn`, not `--reload`/dev mode.
 
 ## Testing
 
@@ -260,26 +275,42 @@ Architecture, window/sampling-rate configuration, and the last-evaluated **recor
 python -m pytest
 ```
 
-63 tests covering: config invariants, fold-split patient-leakage safety, the corrected label rule, class balancing, record-level metric aggregation, aggregation-method/calibration correctness (`ecg/postprocessing.py`, including a regression test locking in the mean-vs-majority-vote confidence bug fix), explainability saliency verified against a closed-form gradient, multi-label superclass mapping, R-peak detection edge cases (empty signal, minimum-RR collapsing, out-of-bounds/flat windows), resampling correctness, missing-file and out-of-range-lead handling, and the Flask API (health/model-info leak no paths, missing/wrong-extension/oversized upload/overlong-filename uploads, path-traversal filenames, malformed WFDB records, an all-zero/no-R-peaks signal, and a real end-to-end prediction against the bundled demo record). CI (`.github/workflows/ci.yml`) runs lint + the full suite on every push; the dataset-dependent API cases self-skip in CI since the multi-GB PTB-XL dataset isn't available there.
+67 tests covering: config invariants, fold-split patient-leakage safety, the corrected label rule, class balancing, record-level metric aggregation, aggregation-method/calibration correctness (`ecg/postprocessing.py`, including a regression test locking in the mean-vs-majority-vote confidence bug fix), explainability saliency verified against a closed-form gradient, multi-label superclass mapping, R-peak detection edge cases (empty signal, minimum-RR collapsing, out-of-bounds/flat windows), resampling correctness, missing-file and out-of-range-lead handling, and the FastAPI backend (health/model-info leak no paths, missing/wrong-extension/oversized upload/overlong-filename uploads, path-traversal filenames, malformed WFDB records, an all-zero/no-R-peaks signal, exact-origin CORS behavior, temp-directory cleanup, `/docs`+`/redoc`+`/openapi.json` availability, and a real end-to-end prediction against the bundled demo record). CI (`.github/workflows/ci.yml`) runs lint + the full suite on every push; the dataset-dependent API cases self-skip in CI since the multi-GB PTB-XL dataset isn't available there.
 
 ## Deployment
 
-The deployed app needs only a trained model file (`artifacts/models/rcnn_model.h5`) - it never requires `ECG_DATASET_ROOT` or the PTB-XL dataset to be present at runtime (only the training/data-prep scripts touch that). Verified by starting the app with `ECG_DATASET_ROOT` pointed at a nonexistent path and confirming `/health`, `/api/model-info`, and a real `/predict` request all still succeed.
+Production architecture: a static frontend on **Vercel** talking cross-origin to a Python backend on **Render**.
 
-**Local (production WSGI server):**
-
-```bash
-waitress-serve --host=0.0.0.0 --port=8000 wsgi:app
+```
+Vercel (public/, api/config.js)  →  Render (FastAPI + TensorFlow/Keras RCNN)  →  rcnn_model.h5
+        static frontend                  uvicorn app.main:app                  downloaded via ECG_MODEL_URL
 ```
 
-**Render / Railway / Heroku-style platforms** (build command + start command):
+Vercel never packages TensorFlow - `public/` and `api/config.js` are the entire Vercel deployment (see `.vercelignore`); the heavyweight ML backend deploys separately.
+
+The backend needs only a trained model file (`artifacts/models/rcnn_model.h5`) - it never requires `ECG_DATASET_ROOT` or the PTB-XL dataset to be present at runtime (only the training/data-prep scripts touch that). Verified by starting it with `ECG_DATASET_ROOT` pointed at a nonexistent path and confirming `/health`, `/model-info`, and a real `/predict` request all still succeed.
+
+**Local (production ASGI server):**
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+**Render** (build command + start command):
 
 ```
 Build:  pip install -r requirements.txt
-Start:  waitress-serve --host=0.0.0.0 --port=$PORT wsgi:app
+Start:  uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-These platforms inject a `PORT` env var and route external traffic to it; `wsgi.py` and the Dockerfile's `CMD` both read `$PORT` (defaulting to 8000 only when it's unset), so no code change is needed to deploy on any of them. Required env var: `ECG_MODEL_PATH` (or place the model at the default `artifacts/models/rcnn_model.h5`) - the trained `.h5` file must be uploaded via the platform's persistent disk/volume feature, since it isn't in git.
+Render injects a `PORT` env var and routes external traffic to it; the Dockerfile's `CMD` reads `$PORT` too (defaulting to 8000 only when it's unset). Required backend env vars:
+
+| Variable | Purpose |
+|---|---|
+| `ECG_MODEL_URL` | Direct-download URL for a trained `rcnn_model.h5` (e.g. a GitHub Release asset) - downloaded once at startup if the model isn't already on disk. |
+| `ECG_FRONTEND_ORIGIN` | The deployed Vercel origin, exactly (e.g. `https://your-app.vercel.app`) - enables CORS for that origin only. |
+
+**Vercel** needs one env var: `ECG_API_URL` set to the deployed Render backend's URL, read at request time by `api/config.js` (no build-time coupling between the two deployments).
 
 **Docker** (⚠️ **NOT VERIFIED** - no Docker runtime was available in the environment this was built in; the `Dockerfile`/`.dockerignore` have been manually reviewed for correctness but the build/run below has not actually been executed. Verify it yourself before relying on it):
 
@@ -308,6 +339,6 @@ This project is a machine learning engineering demonstration. It is **not a cert
 
 1. Train on the full, uncapped training fold (~17k records) on a GPU instead of the CPU-capped 4,000-record subset used here.
 2. Scale the multi-label pipeline past proof-of-concept: full training fold (17,073 records, not 800), more epochs, and class weighting for the underrepresented HYP class - the infrastructure is already in place.
-3. Deploy a live instance and replace the "Live demo" placeholder in this README.
+3. Finish connecting the deployed Render backend to the live Vercel frontend (`ECG_API_URL`/`ECG_MODEL_URL`/`ECG_FRONTEND_ORIGIN`) so the live demo's upload flow works end to end, not just the static page.
 4. Replace the fixed-threshold peak detector with a dedicated QRS detector (e.g. Pan-Tompkins) for more robust beat detection on noisy leads.
 5. Add model versioning/registry and a canary evaluation step to CI so a newly trained model is only promoted if it beats the currently deployed one on the held-out test fold.

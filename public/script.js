@@ -49,7 +49,7 @@ async function init() {
         return;
     }
     try {
-        const res = await fetch(`${apiBase}/api/model-info`);
+        const res = await fetch(`${apiBase}/model-info`);
         if (res.ok) renderPills(await res.json());
     } catch (err) {
         modelPills.innerHTML = '<span class="pill" role="listitem">Backend unreachable</span>';

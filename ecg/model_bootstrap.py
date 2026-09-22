@@ -8,12 +8,12 @@ credential. To deploy, host your own trained `rcnn_model.h5` somewhere
 with a stable, direct-download link (e.g. a GitHub Release asset on
 your own repo, or an object-storage URL) and set `ECG_MODEL_URL` to it.
 
-Called once at import time by app/main.py, so it runs identically
-whether the process is started via `waitress-serve wsgi:app`, a
-Dockerfile CMD, or a plain `python app/main.py` - one code path for
-every deployment target. If the model is already present (the normal
-case for local development), this is a complete no-op: no network
-access is attempted.
+Called once from the FastAPI app's lifespan startup (app/model_state.py),
+so it runs identically whether the process is started via `uvicorn
+app.main:app`, a Dockerfile CMD, or a plain `python app/main.py` - one
+code path for every deployment target. If the model is already present
+(the normal case for local development), this is a complete no-op: no
+network access is attempted.
 """
 from __future__ import annotations
 

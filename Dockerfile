@@ -16,7 +16,6 @@ COPY ecg/ ecg/
 COPY app/ app/
 COPY scripts/ scripts/
 COPY data/demo/ data/demo/
-COPY wsgi.py .
 
 # Small, non-sensitive evaluation/calibration JSON reports (no model
 # weights, no dataset) - lets the deployed UI show real metrics without
@@ -27,10 +26,11 @@ COPY wsgi.py .
 COPY artifacts/reports/ artifacts/reports/
 
 # The model is never baked into the image or committed to git. At
-# container startup, app/main.py (via ecg/model_bootstrap.py) downloads
-# it from ECG_MODEL_URL if it's missing at this path - set that env var
-# on the container/Render service. Alternatively, mount a volume
-# containing rcnn_model.h5 at this path, which skips the download.
+# container startup, the FastAPI app's lifespan (app/model_state.py, via
+# ecg/model_bootstrap.py) downloads it from ECG_MODEL_URL if it's missing
+# at this path - set that env var on the container/Render service.
+# Alternatively, mount a volume containing rcnn_model.h5 at this path,
+# which skips the download.
 # (produced by scripts/prepare_data.py + scripts/train_model.py against a
 # local PTB-XL copy - see README "Deployment" / MODEL_CARD.md)
 ENV ECG_MODEL_PATH=/app/artifacts/models/rcnn_model.h5
@@ -43,4 +43,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s \
     CMD python -c "import os,urllib.request; urllib.request.urlopen(f'http://localhost:{os.environ.get(\"PORT\",8000)}/health')" || exit 1
 
-CMD waitress-serve --host=0.0.0.0 --port=${PORT:-8000} wsgi:app
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
