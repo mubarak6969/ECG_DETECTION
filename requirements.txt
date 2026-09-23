@@ -3,8 +3,16 @@ uvicorn==0.30.6
 python-multipart==0.0.20
 tensorflow==2.16.1
 numpy==1.26.4
-wfdb==4.1.2
-scipy==1.12.0
+# wfdb 4.1.2 crashed at import time under pandas 3.x (ann_class_table's
+# "extension" column resolves to a pandas.arrays.StringArray under
+# pandas 3's default string dtype, which its `set_index(...values)` call
+# doesn't handle) - verified locally. wfdb 4.3.1 fixed that code path;
+# pandas and scipy are pinned explicitly (previously unpinned/looser)
+# so pip always resolves the same combination this was verified against,
+# rather than whatever pandas happens to be current at install time.
+wfdb==4.3.1
+pandas==3.0.6
+scipy==1.17.1
 scikit-learn==1.9.0
 matplotlib==3.10.1
 seaborn==0.13.2
